@@ -453,12 +453,19 @@ export async function resolveImplicitProviders(params: {
     providers.xiaomi = { ...buildXiaomiProvider(), apiKey: xiaomiKey };
   }
 
-  // Ollama provider - only add if explicitly configured
+  // Ollama provider - auto-discover without requiring explicit API key
+  // (Ollama doesn't need authentication by default)
   const ollamaKey =
     resolveEnvApiKeyVarName("ollama") ??
-    resolveApiKeyFromProfiles({ provider: "ollama", store: authStore });
-  if (ollamaKey) {
-    providers.ollama = { ...(await buildOllamaProvider()), apiKey: ollamaKey };
+    resolveApiKeyFromProfiles({ provider: "ollama", store: authStore }) ??
+    ""; // Empty string is fine for local Ollama
+  try {
+    const ollamaProvider = await buildOllamaProvider();
+    if (ollamaProvider.models && ollamaProvider.models.length > 0) {
+      providers.ollama = { ...ollamaProvider, apiKey: ollamaKey || "ollama-local" };
+    }
+  } catch (error) {
+    // Ollama not available, skip silently
   }
 
   return providers;
