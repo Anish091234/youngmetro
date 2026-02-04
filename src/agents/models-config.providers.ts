@@ -76,6 +76,16 @@ const OLLAMA_DEFAULT_COST = {
   cacheWrite: 0,
 };
 
+const APPLE_INTELLIGENCE_BASE_URL = "local://apple-intelligence";
+const APPLE_INTELLIGENCE_DEFAULT_CONTEXT_WINDOW = 8192;
+const APPLE_INTELLIGENCE_DEFAULT_MAX_TOKENS = 4096;
+const APPLE_INTELLIGENCE_DEFAULT_COST = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+};
+
 interface OllamaModel {
   name: string;
   modified_at: string;
@@ -127,6 +137,24 @@ async function discoverOllamaModels(): Promise<ModelDefinitionConfig[]> {
     console.warn(`Failed to discover Ollama models: ${String(error)}`);
     return [];
   }
+}
+
+function buildAppleIntelligenceProvider(): ProviderConfig {
+  return {
+    baseUrl: APPLE_INTELLIGENCE_BASE_URL,
+    api: "anthropic-messages" as any,
+    models: [
+      {
+        id: "apple-intelligence-local",
+        name: "Apple On-Device Intelligence",
+        reasoning: false,
+        input: ["text"],
+        cost: APPLE_INTELLIGENCE_DEFAULT_COST,
+        contextWindow: APPLE_INTELLIGENCE_DEFAULT_CONTEXT_WINDOW,
+        maxTokens: APPLE_INTELLIGENCE_DEFAULT_MAX_TOKENS,
+      },
+    ],
+  };
 }
 
 function normalizeApiKeyConfig(value: string): string {
@@ -466,6 +494,20 @@ export async function resolveImplicitProviders(params: {
     }
   } catch (error) {
     // Ollama not available, skip silently
+  }
+
+  // Apple Intelligence provider - available on macOS for offline fallback
+  // This enables the assistant to use Apple's on-device LLM when WiFi is unavailable
+  const isAppleSilicon = process.platform === "darwin";
+  if (isAppleSilicon) {
+    try {
+      providers["apple-intelligence"] = {
+        ...buildAppleIntelligenceProvider(),
+        apiKey: "apple-local",
+      };
+    } catch (error) {
+      // Apple Intelligence not available, skip silently
+    }
   }
 
   return providers;
