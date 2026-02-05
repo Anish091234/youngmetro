@@ -49,6 +49,8 @@ import {
   emitAgentEvent,
   registerAgentRunContext,
 } from "../infra/agent-events.js";
+import { FineTuningScheduler } from "../infra/fine-tuning-scheduler.js";
+import { LearningStore } from "../infra/learning-store.js";
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
@@ -514,6 +516,45 @@ export async function agentCommand(
     }
 
     const payloads = result.payloads ?? [];
+
+    // Log conversation for continuous learning
+    try {
+      const learningStore = new LearningStore();
+      const responseText = result.text ?? "";
+
+      learningStore.logConversation({
+        id: `conv-${runId}-${Date.now()}`,
+        timestamp: Date.now(),
+        message: body,
+        response: responseText,
+        metadata: {
+          device: "mac", // Will be dynamic in future
+          context: sessionId,
+        },
+      });
+
+      // Check for sleeping signal and trigger fine-tuning if detected
+      const isSleepingMessage =
+        body.toLowerCase().includes("sleeping") ||
+        body.toLowerCase().includes("i am sleeping") ||
+        body.toLowerCase().includes("going to sleep") ||
+        body.toLowerCase().includes("going to bed");
+
+      if (isSleepingMessage) {
+        console.log("\n[Learning] 😴 Sleep signal detected, queuing model fine-tuning...");
+        const scheduler = new FineTuningScheduler(learningStore);
+        // Run fine-tuning asynchronously (don't block the response)
+        scheduler.triggerFineTuning().catch((err) => {
+          console.error("[Learning] Fine-tuning error:", err);
+        });
+      }
+
+      learningStore.close();
+    } catch (err) {
+      // Don't block agent on learning errors
+      console.warn("[Learning] Failed to log conversation:", err);
+    }
+
     return await deliverAgentCommandResult({
       cfg,
       deps,
